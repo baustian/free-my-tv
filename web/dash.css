@@ -1,0 +1,189 @@
+/*
+ * The dashboard (dash.js): dark glass panels over Bing's photo of the day, the same in the day and at night (a photo
+ * is behind them either way). No CSS variables, grid or backdrop-filter, as in home.css.
+ */
+
+/* MARK: - Background: two photo layers that fade into each other, and a shade that keeps the text readable. */
+
+#sky { background: #0B0B0D; }
+#sky .photo {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1920px;
+  height: 1080px;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  -webkit-transition: opacity 2.5s;
+  transition: opacity 2.5s;
+}
+#sky .photo.on { opacity: 1; }
+#sky .shade {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background: -webkit-linear-gradient(top, rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.12) 45%, rgba(0, 0, 0, 0.5));
+  background: linear-gradient(rgba(0, 0, 0, 0.38), rgba(0, 0, 0, 0.12) 45%, rgba(0, 0, 0, 0.5));
+}
+#photocap {
+  position: absolute;
+  right: 64px;
+  bottom: 14px;
+  max-width: 900px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.55);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+/* MARK: - Panels */
+
+.dp {
+  position: absolute;
+  border-radius: 26px;
+  overflow: hidden;
+  color: #F5F5F7;
+  background: -webkit-linear-gradient(top, rgba(22, 24, 30, 0.7), rgba(12, 13, 17, 0.62));
+  background: linear-gradient(rgba(22, 24, 30, 0.7), rgba(12, 13, 17, 0.62));
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35), inset 0 1.5px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  font-feature-settings: 'tnum';
+}
+.dp .head { position: absolute; left: 26px; top: 16px; font-size: 20px; font-weight: 600; color: rgba(255, 255, 255, 0.66); white-space: nowrap; }
+.dp .side { position: absolute; right: 26px; top: 19px; font-size: 16px; font-weight: 500; color: rgba(255, 255, 255, 0.45); white-space: nowrap; }
+.dp .empty, .dp .none { font-size: 22px; color: rgba(255, 255, 255, 0.55); }
+.dp .empty { position: absolute; left: 26px; top: 64px; }
+.dp .sym { display: inline-block; }
+
+/* What can take the focus: a white rim and a slight lift, readable from the couch. */
+.df {
+  -webkit-transition: -webkit-transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.2), background-color 0.14s, box-shadow 0.16s, color 0.14s;
+  transition: transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.2), background-color 0.14s, box-shadow 0.16s, color 0.14s;
+}
+.df.focus { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.92), 0 10px 26px rgba(0, 0, 0, 0.45); }
+
+.pill {
+  display: inline-block;
+  height: 38px;
+  padding: 0 15px;
+  margin-left: 6px;
+  border-radius: 19px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 38px;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.08);
+}
+.pill.on { color: #1C1C1E; background: rgba(255, 255, 255, 0.9); }
+.pill.arrow { padding: 0 14px; font-size: 24px; }
+.pill.focus { -webkit-transform: scale(1.08); transform: scale(1.08); }
+
+/* MARK: - Clock */
+
+#dclock .time { position: absolute; left: 26px; top: 6px; font-size: 104px; font-weight: 300; line-height: 1.04; letter-spacing: -0.02em; }
+#dclock .date { position: absolute; left: 28px; top: 116px; font-size: 28px; font-weight: 500; white-space: nowrap; }
+#dclock .hol { position: absolute; left: 28px; right: 20px; top: 152px; font-size: 18px; font-weight: 500; color: #FFD54F; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* MARK: - Weather */
+
+#dweather .now { position: absolute; left: 24px; top: 40px; white-space: nowrap; }
+#dweather .now .sym { width: 50px; height: 50px; vertical-align: 10px; margin-right: 12px; }
+#dweather .now .temp { font-size: 70px; font-weight: 300; line-height: 70px; }
+#dweather .range { position: absolute; left: 236px; top: 54px; font-size: 18px; font-weight: 600; line-height: 24px; color: rgba(255, 255, 255, 0.8); }
+#dweather .cond { position: absolute; left: 26px; top: 112px; width: 330px; font-size: 21px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dweather .info { position: absolute; left: 26px; top: 140px; width: 330px; font-size: 17px; font-weight: 500; color: rgba(255, 255, 255, 0.66); white-space: nowrap; }
+#dweather .info.sun { top: 160px; }
+#dweather .info.sun .sym { vertical-align: -4px; }
+#dweather .days { position: absolute; left: 360px; top: 14px; width: 290px; height: 160px; }
+#dweather .day { position: absolute; top: 0; text-align: center; }
+#dweather .day .t { font-size: 17px; font-weight: 600; color: rgba(255, 255, 255, 0.66); }
+#dweather .day .sym { display: block; margin: 10px auto 8px; }
+#dweather .day .hi { font-size: 21px; font-weight: 600; }
+#dweather .day .lo { font-size: 17px; color: rgba(255, 255, 255, 0.6); }
+#dweather .day .rain { font-size: 15px; font-weight: 600; color: #64B5F6; margin-top: 2px; }
+
+/* MARK: - Dollar */
+
+#ddollar .cell { position: absolute; white-space: nowrap; }
+#ddollar .cell .n { font-size: 16px; font-weight: 600; color: rgba(255, 255, 255, 0.6); }
+#ddollar .cell .v { font-size: 26px; font-weight: 600; line-height: 30px; }
+#ddollar .cell .s { font-size: 14px; color: rgba(255, 255, 255, 0.5); }
+#ddollar .cell .s.up { color: #30D158; }
+#ddollar .cell .s.down { color: #FF453A; }
+
+/* MARK: - Calendar */
+
+#dcal .period { position: absolute; left: 150px; top: 14px; font-size: 24px; font-weight: 600; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+#dcal .bar { position: absolute; right: 20px; top: 12px; white-space: nowrap; }
+#dcal .body { position: absolute; overflow: hidden; }
+#dcal .note { position: absolute; left: 26px; right: 26px; bottom: 16px; font-size: 16px; color: rgba(255, 255, 255, 0.5); }
+
+#dcal .ev { height: 40px; line-height: 40px; font-size: 23px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dcal .ev .dot { display: inline-block; width: 12px; height: 12px; border-radius: 6px; margin-right: 14px; vertical-align: 2px; }
+#dcal .ev .when { display: inline-block; width: 140px; font-weight: 600; color: rgba(255, 255, 255, 0.8); }
+#dcal .ev .what { font-weight: 500; }
+#dcal .holiday { color: #FFD54F; }
+#dcal .sub { margin-top: 10px; height: 34px; line-height: 34px; font-size: 19px; font-weight: 600; color: rgba(255, 255, 255, 0.55); border-top: 1px solid rgba(255, 255, 255, 0.12); padding-top: 6px; }
+#dcal .more { font-size: 16px; color: rgba(255, 255, 255, 0.55); margin-top: 4px; }
+#dcal .none { height: 40px; line-height: 40px; }
+
+#dcal .col { position: absolute; top: 0; border-radius: 12px; overflow: hidden; }
+#dcal .col.today { background: rgba(255, 255, 255, 0.08); }
+#dcal .dh { height: 34px; line-height: 34px; text-align: center; font-size: 17px; font-weight: 700; color: rgba(255, 255, 255, 0.66); }
+#dcal .col.today .dh { color: #FFF; }
+#dcal .wev { margin: 0 4px 6px; padding: 4px 6px 5px 8px; border-left: 4px solid #64B5F6; border-radius: 6px; background: rgba(255, 255, 255, 0.07); }
+#dcal .wt { font-size: 14px; font-weight: 700; color: rgba(255, 255, 255, 0.7); }
+#dcal .ww { font-size: 15px; font-weight: 500; line-height: 18px; max-height: 36px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+#dcal .wev.holiday .ww { color: #FFD54F; }
+#dcal .col .more { text-align: center; }
+
+#dcal .mh { position: absolute; top: 0; text-align: center; font-size: 15px; font-weight: 700; color: rgba(255, 255, 255, 0.55); }
+#dcal .mc { position: absolute; border-radius: 8px; background: rgba(255, 255, 255, 0.05); overflow: hidden; }
+#dcal .mc.out { opacity: 0.4; }
+#dcal .mc.today { background: rgba(255, 255, 255, 0.16); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.5); }
+#dcal .mn { padding: 3px 7px 1px; font-size: 15px; font-weight: 700; }
+#dcal .mt { margin: 0 4px 2px; padding-left: 5px; border-left: 3px solid #64B5F6; font-size: 12px; line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dcal .mt.holiday { color: #FFD54F; }
+#dcal .mm { position: absolute; right: 6px; top: 3px; font-size: 12px; color: rgba(255, 255, 255, 0.55); }
+
+/* MARK: - News */
+
+#dnews .tabs { position: absolute; left: 18px; top: 56px; white-space: nowrap; }
+#dnews .tabs .pill { margin-left: 0; margin-right: 6px; }
+#dnews .items { position: absolute; }
+#dnews .item { height: 48px; margin-bottom: 6px; padding: 1px 12px; border-radius: 12px; }
+#dnews .item .t { font-size: 22px; font-weight: 600; line-height: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dnews .item .m { font-size: 15px; line-height: 19px; color: rgba(255, 255, 255, 0.5); white-space: nowrap; }
+#dnews .item.focus { background: rgba(255, 255, 255, 0.14); }
+#dnews .none { padding: 12px; }
+#dnews .footer {
+  position: absolute;
+  left: 26px;
+  right: 26px;
+  bottom: 14px;
+  font-size: 16px;
+  line-height: 20px;
+  color: rgba(255, 255, 255, 0.62);
+  max-height: 40px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* MARK: - Trending strip */
+
+#dstrip .label { position: absolute; left: 26px; top: 24px; }
+#dstrip .label .a { font-size: 22px; font-weight: 700; }
+#dstrip .label .b { font-size: 15px; color: rgba(255, 255, 255, 0.55); }
+#dstrip .empty { left: 200px; top: 34px; }
+#dstrip .pick { position: absolute; border-radius: 12px; }
+#dstrip .pick .img { position: absolute; left: 0; top: 0; width: 142px; height: 80px; border-radius: 10px; background-color: #2C2C2E; background-size: cover; background-position: center; }
+#dstrip .pick .t { position: absolute; left: 154px; right: 6px; top: 6px; font-size: 18px; font-weight: 600; line-height: 22px; max-height: 44px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+#dstrip .pick .m { position: absolute; left: 154px; right: 6px; top: 54px; font-size: 14px; color: rgba(255, 255, 255, 0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dstrip .pick.focus { background: rgba(255, 255, 255, 0.12); -webkit-transform: scale(1.04); transform: scale(1.04); }

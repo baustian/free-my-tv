@@ -399,6 +399,21 @@ var TV = (function () {
       else this.launch('com.palm.app.settings', null, done);
     },
 
+    /** A web page in the TV's browser (a news article); done(ok). */
+    openUrl: function (url, done) {
+      if (samsung) {
+        try {
+          var control = new window.tizen.ApplicationControl('http://tizen.org/appcontrol/operation/view', url, null, null, []);
+          window.tizen.application.launchAppControl(control, 'org.tizen.browser', function () { if (done) done(true); },
+            function () { if (done) done(false); });
+        } catch (e) { if (done) done(false); }
+        return;
+      }
+      if (webos) { this.launch('com.webos.app.browser', {target: url}, done); return; }
+      window.open(url, '_blank');
+      if (done) done(true);
+    },
+
     /** LG: keeps the TV's screensaver away while ours will take over (`hold` says when). */
     holdScreenSaver: holdScreenSaver,
 

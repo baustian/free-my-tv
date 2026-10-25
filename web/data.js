@@ -96,7 +96,7 @@ var Data = (function () {
   var PLACE = Place.lat + ',' + Place.lon;
   // Both forecasts in one answer, the next 48 hours and today plus 5 days: Home Settings → Forecast switches without
   // asking again, and offline too.
-  var QUERY = '&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,weather_code'
+  var QUERY = '&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,weather_code,precipitation_probability_max,uv_index_max'
       + '&hourly=temperature_2m,weather_code,is_day&timezone=auto&forecast_days=6&forecast_hours=48';
   var weather = null, weatherAt = 0, fetchingWeather = false;
   (function () {
@@ -118,7 +118,9 @@ var Data = (function () {
     var w = {
       temp: o.current.temperature_2m, code: o.current.weather_code, isDay: o.current.is_day !== 0,
       max: dl.temperature_2m_max[0], min: dl.temperature_2m_min[0],
-      sunrise: localTime(dl.sunrise[0], off), sunset: localTime(dl.sunset[0], off), hours: [], days: []
+      sunrise: localTime(dl.sunrise[0], off), sunset: localTime(dl.sunset[0], off), hours: [], days: [],
+      rain: dl.precipitation_probability_max ? dl.precipitation_probability_max[0] : null,
+      uv: dl.uv_index_max ? dl.uv_index_max[0] : null
     };
     var hr = o.hourly;
     for (var i = 0; hr && i < hr.time.length && w.hours.length < 6; i++) {
@@ -132,7 +134,8 @@ var Data = (function () {
       if (localTime(dl.time[j] + 'T12:00', off) - 12 * 3600000 <= now) continue;
       var p = dl.time[j].split('-');   // named by its noon on the TV's clock, right even with the city far away
       w.days.push({at: new Date(+p[0], p[1] - 1, +p[2], 12).getTime(), max: dl.temperature_2m_max[j],
-        min: dl.temperature_2m_min[j], code: dl.weather_code[j]});
+        min: dl.temperature_2m_min[j], code: dl.weather_code[j],
+        rain: dl.precipitation_probability_max ? dl.precipitation_probability_max[j] : null});
     }
     return w;
   }
@@ -298,17 +301,17 @@ var Data = (function () {
     return (cut > 0 ? t.slice(0, cut) : t).replace(/^\s+|\s+$/g, '');
   }
 
-  /** This hour's 3 picks: movies ("movie"), shows ("tv") or both (null). */
-  function now(kind) {
+  /** This hour's picks (3, or max): movies ("movie"), shows ("tv") or both (null). */
+  function now(kind, max) {
     var list = [];
     if (!KEY) return list;
     for (var i = 0; i < picks.length; i++) {
       var p = picks[i];
-      if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && appFor(p.app)))) list.push(p);
+      if (kind === null || kind === p.kind) list.push(p);
     }
     if (!list.length) return list;
     var hour = Math.floor(Date.now() / 3600000), out = [], seen = {};
-    for (var j = 0; j < list.length && out.length < 3; j++) {
+    for (var j = 0; j < list.length && out.length < (max || 3); j++) {
       var q = list[(hour * 3 + j) % list.length], f = franchise(q.title);
       if (!seen[f]) { seen[f] = true; out.push(q); }
     }
@@ -374,10 +377,14 @@ var Data = (function () {
       }
       var wp = o['watch/providers'], here = wp && wp.results && wp.results[REGION], flat = here && here.flatrate;
       p.app = null;
+      p.service = '';
       for (var i = 0; flat && i < flat.length && !p.app; i++) {
         var s = service(flat[i].provider_name, flat[i].provider_id);
         if (s && appFor(s[1])) { p.app = s[1]; p.service = s[4]; }
       }
+      // None on the TV: where it streams anyway (the strip shows it; OK says so).
+      if (!p.app && flat && flat.length) p.service = flat[0].provider_name;
+      p.where = p.service;
       if (p.service && p.app) parts.push(p.service);
       p.meta = parts.join(' · ');
       title(p, o, function () {
@@ -401,6 +408,9 @@ var Data = (function () {
       done();
     });
   }
+
+  /** Picks in the dashboard's strip. */
+  var STRIP = 6;
 
   /** TMDB's Animation genre (movies and shows: cartoons and anime), left out with hide_animation=true. */
   var ANIMATION = 16;
@@ -442,7 +452,6 @@ var Data = (function () {
         var s = service(res.results[i].provider_name, res.results[i].provider_id);
         if (s && appFor(s[1])) ids.push(res.results[i].provider_id);
       }
-      if (!ids.length) { done(new Error("none of the TV's streaming apps are on TMDB")); return; }
       var common = '&language=' + lang() + '&watch_region=' + REGION + '&with_watch_monetization_types=flatrate&include_adult=false'
           + '&sort_by=popularity.desc&with_watch_providers=' + encodeURIComponent(ids.join('|'))
           + (CONFIG.hideAnimation ? '&without_genres=' + ANIMATION : '');
@@ -451,25 +460,29 @@ var Data = (function () {
         tmdb('/trending/' + kind + '/week?language=' + lang(), function (e, r) {
           var candidates = [];
           for (var j = 0; !e && j < r.results.length && j < 16; j++) addPick(candidates, r.results[j], kind);
-          // Trending is only kept when it's on one of the TV's apps: the details say where.
+          // The details say where each one streams (an app on the TV, or only its name when there's none).
           each(candidates, function (p, n) {
-            details(p, function (de) { if (!de && p.app) hot[kind].push(p); n(); });
+            details(p, function (de) { if (!de) hot[kind].push(p); n(); });
           }, next);
         });
       }, function () {
+        if (!ids.length) { fresh = null; finishList(); return; }
         tmdb('/discover/movie?vote_count.gte=30&primary_release_date.gte=' + day(-365) + '&primary_release_date.lte=' + day(0) + common, function (e1, r1) {
           for (var j = 0; !e1 && j < r1.results.length; j++) addPick(fresh.movie, r1.results[j], 'movie');
           tmdb('/discover/tv?vote_count.gte=20&air_date.gte=' + day(-90) + '&air_date.lte=' + day(0) + common, function (e2, r2) {
             for (var k = 0; !e2 && k < r2.results.length; k++) addPick(fresh.tv, r2.results[k], 'tv');
-            var list = [], seen = {};
-            alternate(list, seen, hot.movie, hot.tv, 24);
-            alternate(list, seen, fresh.movie, fresh.tv, 24);
-            if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
-            picks = list;
-            done(null);
+            finishList();
           });
         });
       });
+      function finishList() {
+        var list = [], seen = {};
+        alternate(list, seen, hot.movie, hot.tv, 24);
+        if (fresh) alternate(list, seen, fresh.movie, fresh.tv, 24);
+        if (!list.length) { done(new Error('TMDB returned no recommendations')); return; }
+        picks = list;
+        done(null);
+      }
     });
   }
 
@@ -511,7 +524,7 @@ var Data = (function () {
   function all() {
     var out = [], seen = {}, kinds = [null, 'movie', 'tv'];
     for (var k = 0; k < kinds.length; k++) {
-      var list = now(kinds[k]);
+      var list = now(kinds[k], k === 0 ? STRIP : 3);
       for (var i = 0; i < list.length; i++) if (!seen[keyOf(list[i])]) { seen[keyOf(list[i])] = true; out.push(list[i]); }
     }
     return out;

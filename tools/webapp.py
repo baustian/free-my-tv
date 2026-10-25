@@ -15,7 +15,7 @@ import translate  # noqa: E402  (the catalogues and the keys the web app uses)
 
 GENERIC = {'tmdbKey': '', 'tmdbRegion': '', 'latitude': '', 'longitude': '', 'city': '', 'language': 'auto',
            'currency': '', 'temperature': 'auto', 'theme': 'auto', 'showCrypto': True, 'hideAnimation': False, 'hideApps': [],
-           'shelfApps': []}
+           'shelfApps': [], 'calendarUrls': [], 'newsEdition': '', 'backgroundMinutes': 10}
 
 
 def config_from_args(args):
@@ -61,6 +61,11 @@ def read_config(path):
         'hideAnimation': values.get('hide_animation', 'false').lower() == 'true',
         'hideApps': [s.strip() for s in values.get('hide_apps', '').split(',') if s.strip()],
         'shelfApps': [s.strip() for s in values.get('shelf_apps', '').split(',') if s.strip()],
+        # The dashboard: private iCal addresses (Google Calendar → Settings → Integrate calendar), Google News'
+        # edition (country:language, empty = the TMDB region's) and how often the background photo changes.
+        'calendarUrls': [s.strip() for s in re.split(r'[\s,]+', values.get('calendar_urls', '')) if s.strip()],
+        'newsEdition': values.get('news_edition', ''),
+        'backgroundMinutes': int(number('background_minutes', '10')),
     }
 
 
