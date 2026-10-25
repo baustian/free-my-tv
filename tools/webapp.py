@@ -15,7 +15,8 @@ import translate  # noqa: E402  (the catalogues and the keys the web app uses)
 
 GENERIC = {'tmdbKey': '', 'tmdbRegion': '', 'latitude': '', 'longitude': '', 'city': '', 'language': 'auto',
            'currency': '', 'temperature': 'auto', 'theme': 'auto', 'showCrypto': True, 'hideAnimation': False, 'hideApps': [],
-           'shelfApps': [], 'calendarUrls': [], 'newsEdition': '', 'backgroundMinutes': 10}
+           'shelfApps': [], 'calendarUrls': [], 'newsEdition': '', 'backgroundMinutes': 10,
+           'wallChannels': [], 'wallPlayer': ''}
 
 
 def config_from_args(args):
@@ -66,6 +67,9 @@ def read_config(path):
         'calendarUrls': [s.strip() for s in re.split(r'[\s,]+', values.get('calendar_urls', '')) if s.strip()],
         'newsEdition': values.get('news_edition', ''),
         'backgroundMinutes': int(number('background_minutes', '10')),
+        # The news wall: up to 9 YouTube channels as Name:@handle, and the page that plays them (it needs a web address).
+        'wallChannels': [s.strip() for s in values.get('wall_channels', '').split(',') if s.strip()],
+        'wallPlayer': values.get('wall_player', ''),
     }
 
 

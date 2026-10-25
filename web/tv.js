@@ -414,6 +414,23 @@ var TV = (function () {
       if (done) done(true);
     },
 
+    /** A YouTube video in the TV's YouTube app (the news wall's channels that don't allow embedding); done(ok). */
+    youtube: function (videoId, done) {
+      if (samsung) {
+        var app = '9Ur5IzDKqV.TizenYouTube';
+        try {
+          // The YouTube app takes the video in its PAYLOAD; if it doesn't, it opens on its home.
+          var data = [new window.tizen.ApplicationControlData('PAYLOAD', ['#play?v=' + videoId])];
+          var control = new window.tizen.ApplicationControl('http://tizen.org/appcontrol/operation/view', null, null, null, data);
+          window.tizen.application.launchAppControl(control, app, function () { if (done) done(true); },
+            function () { samsungLaunch(app, done); });
+        } catch (e) { samsungLaunch(app, done); }
+        return;
+      }
+      if (webos) { this.launch('youtube.leanback.v4', {contentTarget: 'v=' + videoId}, done); return; }
+      this.openUrl('https://www.youtube.com/watch?v=' + videoId, done);
+    },
+
     /** LG: keeps the TV's screensaver away while ours will take over (`hold` says when). */
     holdScreenSaver: holdScreenSaver,
 

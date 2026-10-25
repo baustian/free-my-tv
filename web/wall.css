@@ -1,0 +1,92 @@
+/*
+ * The news wall (wall.js): 3 × 3 channels; the chosen one plays live with sound in its tile (or full screen), the
+ * others show their live's latest picture. No CSS variables, grid or backdrop-filter, as in home.css.
+ */
+
+#wall {
+  display: none;
+  background: #07070A;
+  z-index: 5;   /* over the screensaver (4), under the toast */
+}
+#wall.open { display: block; }
+
+#wall .wt {
+  position: absolute;
+  width: 576px;
+  height: 324px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #16171C;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  -webkit-transition: -webkit-transform 0.18s;
+  transition: transform 0.18s;
+}
+#wall .wt img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 576px;
+  height: 324px;
+  opacity: 0;
+  -webkit-transition: opacity 0.6s;
+  transition: opacity 0.6s;
+}
+#wall .wt img.on { opacity: 1; }
+#wall .wt .bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 536px;
+  padding: 26px 20px 12px;
+  color: #F5F5F7;
+  font-size: 24px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: -webkit-linear-gradient(top, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.82));
+  background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.82));
+}
+#wall .wt .bar .what { font-size: 17px; font-weight: 400; color: rgba(255, 255, 255, 0.7); margin-left: 10px; }
+#wall .wt .badge {
+  position: absolute;
+  left: 16px;
+  top: 14px;
+  padding: 3px 10px;
+  border-radius: 7px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #FFF;
+  background: rgba(0, 0, 0, 0.55);
+}
+#wall .wt .badge.live { background: #D4182B; }
+#wall .wt .badge.sound { background: #F5F5F7; color: #111; }
+#wall .wt .badge.yt { background: rgba(0, 0, 0, 0.7); }
+#wall .wt.focus {
+  -webkit-transform: scale(1.04);
+  transform: scale(1.04);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.6), 0 0 0 4px #F5F5F7;
+  z-index: 2;
+}
+#wall .wt.playing .bar { display: none; }
+
+#wall iframe {
+  position: absolute;
+  border: 0;
+  border-radius: 18px;
+  background: #000;
+  z-index: 3;
+  pointer-events: none;
+}
+#wall iframe.full { border-radius: 0; z-index: 10; }
+
+#wall .hint {
+  position: absolute;
+  left: 0;
+  bottom: 6px;
+  width: 1920px;
+  text-align: center;
+  font-size: 17px;
+  color: rgba(255, 255, 255, 0.5);
+}

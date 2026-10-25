@@ -286,6 +286,13 @@
     }
     shelf = out;
     others = apps.filter(function (x) { return shelf.indexOf(x) < 0; });
+    if (Wall.available()) shelf.unshift(WALL_TILE);
+  }
+
+  // This fork: the news wall (wall.js) opens from the first tile of the shelf.
+  var WALL_TILE = {id: 'oraculo.wall', title: 'En vivo', color: '#D4182B', wall: true};
+  function realShelf() {
+    return shelf.filter(function (a) { return !a.wall; });
   }
 
   // MARK: - Focus
@@ -693,7 +700,7 @@
   // MARK: - Shelf editor: which apps, in what order
 
   function editList() {
-    var ids = shelf.map(function (a) { return a.id; });
+    var ids = realShelf().map(function (a) { return a.id; });
     return {ids: ids, rows: apps.slice().sort(function (a, b) {
       var ia = ids.indexOf(a.id), ib = ids.indexOf(b.id);
       if (ia >= 0 || ib >= 0) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
@@ -776,7 +783,8 @@
         Dash.activate();
         return;
       case Z.SHELF:
-        if (shelf[st.shelf]) launcher(shelf[st.shelf].id, shelf[st.shelf].title)();
+        if (shelf[st.shelf] && shelf[st.shelf].wall) Wall.open();
+        else if (shelf[st.shelf]) launcher(shelf[st.shelf].id, shelf[st.shelf].title)();
         return;
       case Z.DRAWER:
         if (drawerItems[st.drawer]) drawerItems[st.drawer].run();
@@ -951,6 +959,7 @@
   document.addEventListener('keydown', function (e) {
     var k = e.keyCode;
     if (poke()) { e.preventDefault(); return; }   // the first press only wakes the screen
+    if (Wall.isOpen()) { if (Wall.key(k)) e.preventDefault(); return; }
     if (k === TV.keys.left) move(-1, 0);
     else if (k === TV.keys.right) move(1, 0);
     else if (k === TV.keys.up) move(0, -1);
@@ -996,6 +1005,7 @@
   /** Back to the home screen (the app was opened again): the shelf, everything closed, the first tab. */
   function reset() {
     hideSaver();
+    Wall.close();
     closeSheets();
     st.zone = Z.SHELF;
     st.shelf = 0;
@@ -1020,7 +1030,7 @@
   document.addEventListener('webOSRelaunch', reopened);   // LG: opened again while running
   window.addEventListener('appcontrol', reopened);        // Samsung: the same
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { hideSaver(); return; }
+    if (document.hidden) { hideSaver(); Wall.close(); return; }   // the video stops when another app opens
     idleAt = Date.now();
     loadApps(function () { renderShelf(); renderDrawer(); updateFocus(); Data.refresh(); });
   });
@@ -1034,6 +1044,12 @@
     toast: toast,
     launch: function (app) { launcher(app.id, app.title)(); },
     pointer: function () { if (!sheetOpen() && st.zone !== Z.DRAWER) { st.zone = Z.DASH; updateFocus(); } }
+  });
+  Wall.init($('wall'), {
+    toast: toast,
+    youtube: function (id) {
+      TV.youtube(id, function (ok) { if (!ok) toast(trf("Couldn't open {app}.", {app: 'YouTube'})); });
+    }
   });
   loadApps(function () {
     renderAll();
