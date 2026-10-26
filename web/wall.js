@@ -1,35 +1,43 @@
 /*
- * The news wall (this fork): 3 × 3 live news channels from YouTube.
+ * The news wall (this fork): up to 9 live news channels from YouTube, on a grid of 4 × 3.
  *
  * The TV decodes one video at a time (a 2020 Samsung, tested: of 9 players, one played), so the chosen channel plays
- * live with its sound in its tile and the others show their live's latest picture (YouTube makes a new one about
- * every 5 minutes). OK on another tile moves the video and the sound there; OK on the playing one fills the screen.
+ * live with its sound in the big window (2 × 2 cells, top left) and the others show their live's latest frame. OK on
+ * a small one swaps it with the big one; OK on the big one fills the screen.
+ *
+ * The frames come from the live's storyboard (the small pictures YouTube's player shows when seeking): a new sheet of
+ * 3 × 3 frames about every 30 s, numbered; the newest is the highest number that exists, and its last frame is the
+ * latest. Small (159 × 90), but real: the _live.jpg thumbnail is often the channel's cover, not the broadcast.
  *
  * YouTube plays an embed only on a page with a web address (from the app's file:// it answers error 153), so the
  * video plays in CONFIG.wallPlayer, a page on GitHub Pages (github.com/baustian/oraculo-player), driven with
  * postMessage. Each channel's live is looked up from its @handle every time (a channel's live gets a new id when it
- * restarts), and the player keeps to the live point. A channel that doesn't allow embedding opens in YouTube.
+ * restarts). A channel that doesn't allow embedding opens in YouTube.
  *
  * Channels: wall_channels in config.properties, "Name:@handle" separated by commas. ES5: the TV runs Chromium 69.
  */
 (function () {
   'use strict';
 
-  var W = 576, H = 324, GAP = 16, X0 = 80, Y0 = 24;
-  var LOOKUP_EVERY = 10 * 60 * 1000, PICTURE_EVERY = 60 * 1000;
+  // Cells of 16:9 under a header: the big window is 2 × 2 of them.
+  var CW = 452, CH = 254, GAP = 16, X0 = 32, Y0 = 150;
+  var SLOTS = [[0, 0, 2], [2, 0, 1], [3, 0, 1], [2, 1, 1], [3, 1, 1], [0, 2, 1], [1, 2, 1], [2, 2, 1], [3, 2, 1]];
+  var LOOKUP_EVERY = 10 * 60 * 1000, FRAME_EVERY = 30 * 1000;
   var PLAYER = CONFIG.wallPlayer || 'https://baustian.github.io/oraculo-player/';
 
   var channels = parseChannels(CONFIG.wallChannels || []);
-  var root = null, frame = null, hint = null, tiles = [];
-  var opened = false, focus = 0, playing = -1, full = false, timers = [];
+  var order = [];   // order[slot] = index in channels; slot 0 is the big window
+  var root = null, frame = null, head = null, tiles = [];
+  var opened = false, focus = 0, full = false, timers = [];
   var hooks = {toast: function () {}, youtube: function () {}};
 
   function parseChannels(list) {
     var out = [];
-    for (var i = 0; i < list.length && out.length < 9; i++) {
+    for (var i = 0; i < list.length && out.length < SLOTS.length; i++) {
       var m = /^\s*(.*?)\s*:\s*(@[\w.\-]+)\s*$/.exec(list[i]) || /^\s*()(@[\w.\-]+)\s*$/.exec(list[i]);
       if (!m) continue;
-      out.push({name: m[1] || m[2].slice(1), handle: m[2], id: '', live: false, embed: true, title: '', at: 0, busy: false});
+      out.push({name: m[1] || m[2].slice(1), handle: m[2], id: '', live: false, embed: true, title: '', at: 0,
+                busy: false, sb: null, sheet: 0, probing: false});
     }
     return out;
   }
@@ -56,6 +64,9 @@
     return null;
   }
 
+  function slotOf(c) { return order.indexOf(c); }
+  function playing() { return order[0]; }
+
   // MARK: - Looking up each channel's live
 
   function decode(s) {
@@ -74,48 +85,112 @@
       ch.at = Date.now();
       var t = x.status === 200 ? x.responseText : '';
       var id = /<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([\w-]{11})"/.exec(t);
+      var before = ch.id;
       ch.live = !!id && t.indexOf('"isLive":true') >= 0;
       ch.id = id ? id[1] : '';
       ch.embed = t.indexOf('"playableInEmbed":false') < 0;
       var title = /<meta name="title" content="([^"]*)"/.exec(t);
       ch.title = title ? decode(title[1]) : '';
+      // "https://i.ytimg.com/sb/<id>/storyboard_live_90_3x3_b4/M$M.jpg?rs=…#159#90#3#3"
+      var sb = /"spec":"(https:\/\/i\.ytimg\.com\/sb\/[^"]*storyboard_live[^"]*)"/.exec(t);
+      if (sb) {
+        var parts = decode(sb[1]).split('#');
+        ch.sb = {url: parts[0], cols: +parts[3] || 3, rows: +parts[4] || 3};
+      } else ch.sb = null;
+      if (ch.id !== before) ch.sheet = 0;
       if (done) done(ch);
       paint(channels.indexOf(ch));
+      frameOf(ch);
     };
     x.send();
   }
 
   function lookupAll() {
-    for (var i = 0; i < channels.length; i++) lookup(channels[i], i === playing ? replay : null);
+    for (var i = 0; i < channels.length; i++) lookup(channels[i], channels[i] === channels[playing()] ? replay : null);
   }
 
   /** After a new lookup of the playing channel: a new id (the live restarted) plays the new one. */
   function replay(ch) {
-    var i = channels.indexOf(ch);
-    if (i === playing && ch.live && ch.embed && ch.id !== frame.playingId) start(i);
+    if (ch === channels[playing()] && ch.live && ch.embed && ch.id !== frame.playingId) start();
+  }
+
+  // MARK: - The latest frame of each live
+
+  function exists(ch, n, done) {
+    var x = new XMLHttpRequest();
+    x.open('HEAD', ch.sb.url.replace('$M', n));
+    x.timeout = 10000;
+    x.onload = function () { done(x.status === 200); };
+    x.onerror = x.ontimeout = function () { done(false); };
+    x.send();
+  }
+
+  /** The newest sheet: from the last one known, step forward; the first time, double then halve. */
+  function newestSheet(ch, done) {
+    if (ch.sheet) {
+      var step = function (n) {
+        exists(ch, n + 1, function (yes) { if (yes && n + 1 < ch.sheet + 20) step(n + 1); else done(n); });
+      };
+      step(ch.sheet);
+      return;
+    }
+    var lo = 0, hi = 1;
+    var grow = function () {
+      exists(ch, hi, function (yes) {
+        if (yes && hi < 1e8) { lo = hi; hi *= 2; grow(); } else halve();
+      });
+    };
+    var halve = function () {
+      if (hi - lo <= 1) { done(lo); return; }
+      var mid = Math.floor((lo + hi) / 2);
+      exists(ch, mid, function (yes) { if (yes) lo = mid; else hi = mid; halve(); });
+    };
+    grow();
+  }
+
+  function frameOf(ch) {
+    if (!ch.sb || !ch.live || ch.probing) return;
+    ch.probing = true;
+    var id = ch.id;
+    newestSheet(ch, function (n) {
+      ch.probing = false;
+      if (ch.id !== id) return;
+      ch.sheet = n;
+      paint(channels.indexOf(ch));
+    });
+  }
+
+  function framesAll() {
+    for (var i = 0; i < channels.length; i++) frameOf(channels[i]);
   }
 
   // MARK: - Tiles
 
+  function rect(slot) {
+    var s = SLOTS[slot], n = s[2];
+    return {x: X0 + s[0] * (CW + GAP), y: Y0 + s[1] * (CH + GAP), w: n * CW + (n - 1) * GAP, h: n * CH + (n - 1) * GAP};
+  }
+
   function build() {
     root.innerHTML = '';
     tiles = [];
+    head = el('div', 'head', root);
+    el('div', 'tag', head, 'EN VIVO');
+    el('div', 'now', head);
+    el('div', 'clock', head);
     for (var i = 0; i < channels.length; i++) {
       var t = el('div', 'wt', root);
-      t.style.left = (X0 + (i % 3) * (W + GAP)) + 'px';
-      t.style.top = (Y0 + Math.floor(i / 3) * (H + GAP)) + 'px';
-      el('img', '', t);
-      el('img', '', t);
+      el('div', 'pic', t);
+      el('div', 'pic', t);
       el('div', 'badge', t);
       var bar = el('div', 'bar', t);
       el('span', 'name', bar, channels[i].name);
       el('span', 'what', bar);
-      (function (i) {
-        t.onmouseover = function () { if (!full) { focus = i; showFocus(); } };
-        t.onclick = function () { focus = i; ok(); };
+      (function (c) {
+        t.onmouseover = function () { if (!full) { focus = slotOf(c); showFocus(); } };
+        t.onclick = function () { focus = slotOf(c); ok(); };
       })(i);
       tiles.push(t);
-      paint(i);
     }
     frame = el('iframe', '', root);
     frame.setAttribute('allow', 'autoplay; encrypted-media');
@@ -125,33 +200,75 @@
     frame.ready = false;
     frame.onload = function () { frame.ready = true; if (frame.pending) send(frame.pending); frame.pending = null; };
     frame.src = PLAYER;
-    hint = el('div', 'hint', root, 'OK: ver con sonido · OK otra vez: pantalla completa · Atrás: volver');
-    showFocus();
+    el('div', 'hint', root, 'OK: ver este canal · OK en el grande: pantalla completa · Atrás: volver');
   }
 
-  /** A tile's picture, badge and line: its live's latest picture, faded in when it has loaded. */
-  function paint(i) {
-    var t = tiles[i], ch = channels[i];
+  function layout() {
+    for (var s = 0; s < order.length; s++) {
+      var t = tiles[order[s]], r = rect(s);
+      t.style.left = r.x + 'px';
+      t.style.top = r.y + 'px';
+      t.style.width = r.w + 'px';
+      t.style.height = r.h + 'px';
+      setClass(t, 'big', s === 0);
+    }
+    place();
+    showFocus();
+    paintAll();
+  }
+
+  /** A tile's picture, badge and line: the live's latest frame, faded in when it has loaded. */
+  function paint(c) {
+    var t = tiles[c], ch = channels[c];
     if (!t || !ch) return;
-    var badge = t.children[2], what = t.children[3].lastChild;
-    if (i === playing) { badge.className = 'badge sound'; badge.textContent = '🔊 EN VIVO'; }
+    var badge = t.children[2], what = t.children[3].lastChild, big = slotOf(c) === 0;
+    if (big && ch.live && ch.embed) { badge.className = 'badge sound'; badge.textContent = '🔊 EN VIVO'; }
     else if (ch.live && !ch.embed) { badge.className = 'badge yt'; badge.textContent = 'EN VIVO · se abre en YouTube'; }
     else if (ch.live) { badge.className = 'badge live'; badge.textContent = 'EN VIVO'; }
     else { badge.className = 'badge'; badge.textContent = ch.at ? 'Sin transmisión' : 'Buscando…'; }
-    what.textContent = ch.live ? shorten(ch.title) : '';
+    what.textContent = ch.live ? shorten(ch.title, ch.name) : '';
+    if (big) paintHead();
     if (!ch.live) return;
-    var front = t.children[0].className === 'on' ? t.children[0] : t.children[1];
-    var back = front === t.children[0] ? t.children[1] : t.children[0];
-    var url = 'https://i.ytimg.com/vi/' + ch.id + '/hq720_live.jpg?m=' + Math.floor(Date.now() / PICTURE_EVERY);
-    if (front.getAttribute('src') === url) return;
-    back.onload = function () { back.className = 'on'; front.className = ''; };
-    back.src = url;
+    var url, size, pos;
+    if (ch.sb && ch.sheet) {
+      // The sheet's last frame: the bottom right of cols × rows.
+      url = ch.sb.url.replace('$M', ch.sheet);
+      size = (ch.sb.cols * 100) + '% ' + (ch.sb.rows * 100) + '%';
+      pos = '100% 100%';
+    } else {
+      url = 'https://i.ytimg.com/vi/' + ch.id + '/hq720_live.jpg?m=' + Math.floor(Date.now() / LOOKUP_EVERY);
+      size = 'cover';
+      pos = 'center';
+    }
+    var a = t.children[0], b = t.children[1];
+    var front = a.className === 'pic on' ? a : b, back = front === a ? b : a;
+    if (front.picUrl === url) return;
+    var img = new Image();
+    img.onload = function () {
+      back.style.backgroundImage = 'url(' + url + ')';
+      back.style.backgroundSize = size;
+      back.style.backgroundPosition = pos;
+      back.picUrl = url;
+      back.className = 'pic on';
+      front.className = 'pic';
+    };
+    img.src = url;
   }
 
-  /** "TN EN VIVO - SEGUÍ LA TRANSMISIÓN…": without the channel's own name and the "en vivo". */
-  function shorten(title) {
-    return title.replace(/[☀-➿]|\uD83C[\uDDE6-\uDDFF]|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDEFF]/g, '')
+  /** "TN EN VIVO - SEGUÍ LA TRANSMISIÓN…" → "SEGUÍ LA TRANSMISIÓN…": without emoji, "en vivo" and the channel's name. */
+  function shorten(title, name) {
+    var t = title.replace(/[☀-➿]|\uD83C[\uDDE6-\uDDFF]|\uD83C[\uDF00-\uDFFF]|\uD83D[\uDC00-\uDEFF]/g, '')
       .replace(/\bEN VIVO\b/i, '').replace(/^[\s|·\-:]+|[\s|·\-:]+$/g, '');
+    if (name && t.toLowerCase().indexOf(name.toLowerCase()) === 0) t = t.slice(name.length).replace(/^[\s|·\-:]+/, '');
+    return t;
+  }
+
+  function paintHead() {
+    if (!head) return;
+    var ch = channels[playing()];
+    head.children[1].textContent = ch ? ch.name + (ch.live ? '  ·  ' + shorten(ch.title, ch.name) : '') : '';
+    var d = new Date();
+    head.children[2].textContent = (d.getHours() < 10 ? '0' : '') + d.getHours() + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
   }
 
   function paintAll() {
@@ -159,7 +276,7 @@
   }
 
   function showFocus() {
-    for (var i = 0; i < tiles.length; i++) setClass(tiles[i], 'focus', i === focus && !full);
+    for (var s = 0; s < order.length; s++) setClass(tiles[order[s]], 'focus', s === focus && !full);
   }
 
   // MARK: - The player
@@ -169,130 +286,160 @@
     frame.contentWindow.postMessage(JSON.stringify(msg), '*');
   }
 
+  /** The video over the big window, or over the whole screen. */
   function place() {
-    if (playing < 0) { frame.style.display = 'none'; return; }
-    var t = tiles[playing];
-    frame.style.display = '';
+    var ch = channels[playing()], on = !!frame.playingId && ch && ch.id === frame.playingId;
+    frame.style.display = on ? '' : 'none';
     setClass(frame, 'full', full);
-    frame.style.left = full ? '0' : t.style.left;
-    frame.style.top = full ? '0' : t.style.top;
-    frame.style.width = (full ? 1920 : W) + 'px';
-    frame.style.height = (full ? 1080 : H) + 'px';
-    hint.style.display = full ? 'none' : '';
-    for (var i = 0; i < tiles.length; i++) setClass(tiles[i], 'playing', i === playing);
+    var r = full ? {x: 0, y: 0, w: 1920, h: 1080} : rect(0);
+    frame.style.left = r.x + 'px';
+    frame.style.top = r.y + 'px';
+    frame.style.width = r.w + 'px';
+    frame.style.height = r.h + 'px';
   }
 
-  /** Plays channel i in its tile, with sound; the one before goes back to its picture. */
-  function start(i) {
-    var ch = channels[i], before = playing;
-    playing = i;
-    store('last', ch.handle);
+  /** Plays the big window's channel, with sound. */
+  function start() {
+    var ch = channels[playing()];
+    if (!ch || !ch.live || !ch.embed) { stopVideo(); return; }
+    store('order', order.map(function (c) { return channels[c].handle; }).join(','));
     frame.playingId = ch.id;
     send({wall: 'play', id: ch.id, sound: true});
     place();
-    if (before >= 0) paint(before);
-    paint(i);
+    paint(playing());
   }
 
-  function stop() {
-    if (playing < 0) return;
-    var before = playing;
-    playing = -1;
-    full = false;
+  function stopVideo() {
+    if (!frame || !frame.playingId) return;
     frame.playingId = '';
+    full = false;
     send({wall: 'stop'});
     place();
-    paint(before);
   }
 
-  /** OK on a tile: there the video and the sound, or full screen when it already plays there. */
+  /** Channel at slot s to the big window; the one there goes to slot s. */
+  function swap(s) {
+    var c = order[s];
+    order[s] = order[0];
+    order[0] = c;
+    focus = 0;
+    layout();
+    start();
+  }
+
+  /** OK: a small tile comes to the big window and plays; the big one goes full screen. */
   function ok() {
-    var ch = channels[focus];
+    var ch = channels[order[focus]];
     if (!ch) return;
-    if (focus === playing) { full = !full; place(); showFocus(); return; }
-    if (!ch.at) { hooks.toast('Buscando el vivo de ' + ch.name + '…'); return; }
+    if (focus === 0) {
+      if (ch.live && ch.embed) { full = !full; place(); showFocus(); return; }
+    } else if (!ch.at) { hooks.toast('Buscando el vivo de ' + ch.name + '…'); return; }
     if (!ch.live) { hooks.toast(ch.name + ' no está transmitiendo en vivo ahora.'); lookup(ch); return; }
     if (!ch.embed) {
-      stop();
+      stopVideo();
       hooks.toast(ch.name + ' no deja verlo fuera de YouTube: se abre en YouTube.');
       hooks.youtube(ch.id);
       return;
     }
-    start(focus);
+    swap(focus);
   }
 
   window.addEventListener('message', function (e) {
     if (!frame || e.source !== frame.contentWindow) return;
     var m;
     try { m = JSON.parse(e.data); } catch (x) { return; }
-    if (!m || m.wall !== 'state' || playing < 0) return;
-    var ch = channels[playing];
-    if (m.id !== ch.id) return;
-    // Ended (the channel restarted its live with a new id) or an error: look it up again.
+    var ch = channels[playing()];
+    if (!m || m.wall !== 'state' || !ch || m.id !== ch.id) return;
+    // Ended (the channel restarted its live with a new id) or not found: look it up again.
     if (m.state === 0 || m.error === 2 || m.error === 100) lookup(ch, replay);
     else if (m.error === 101 || m.error === 150 || m.error === 153) {
       ch.embed = false;
-      stop();
-      paint(channels.indexOf(ch));
+      stopVideo();
+      paint(playing());
       hooks.toast(ch.name + ' no deja verlo acá: OK lo abre en YouTube.');
     }
   });
 
   // MARK: - Opening, closing, keys
 
+  /** The last order (the big window's channel first), as handles; channels added since go at the end. */
+  function savedOrder() {
+    var saved = (store('order') || '').split(','), out = [], i;
+    for (i = 0; i < saved.length; i++) {
+      for (var c = 0; c < channels.length; c++) if (channels[c].handle === saved[i] && out.indexOf(c) < 0) out.push(c);
+    }
+    for (i = 0; i < channels.length; i++) if (out.indexOf(i) < 0) out.push(i);
+    return out;
+  }
+
   function open() {
     if (!channels.length) { hooks.toast('No hay canales: wall_channels en config.properties.'); return; }
     if (!root.firstChild) build();
     opened = true;
     full = false;
+    focus = 0;
+    order = savedOrder();
     setClass(root, 'open', true);
-    var last = store('last'), first = 0;
-    for (var i = 0; i < channels.length; i++) if (channels[i].handle === last) first = i;
-    focus = first;
-    showFocus();
+    layout();
     // Fresh lookups every time: the ids from before may be a live that has ended.
-    for (var k = 0; k < channels.length; k++) {
-      lookup(channels[k], k === first ? function (ch) {
-        if (opened && playing < 0 && ch.live && ch.embed) start(channels.indexOf(ch));
+    for (var c = 0; c < channels.length; c++) {
+      lookup(channels[c], c === order[0] ? function (ch) {
+        if (opened && ch === channels[playing()]) start();
       } : null);
     }
     timers.push(setInterval(lookupAll, LOOKUP_EVERY));
-    timers.push(setInterval(paintAll, PICTURE_EVERY));
+    timers.push(setInterval(framesAll, FRAME_EVERY));
+    timers.push(setInterval(paintHead, 15000));
   }
 
   function close() {
-    stop();
+    stopVideo();
     opened = false;
-    setClass(root, 'open', false);
+    if (root) setClass(root, 'open', false);
     while (timers.length) clearInterval(timers.pop());
+  }
+
+  /** The nearest slot in direction (dx, dy) from the focused one, by the tiles' centers. */
+  function neighbor(dx, dy) {
+    var a = rect(focus), ax = a.x + a.w / 2, ay = a.y + a.h / 2, best = -1, bestD = 1e9;
+    for (var s = 0; s < order.length; s++) {
+      if (s === focus) continue;
+      var b = rect(s), bx = b.x + b.w / 2, by = b.y + b.h / 2;
+      var along = dx ? (bx - ax) * dx : (by - ay) * dy, across = dx ? Math.abs(by - ay) : Math.abs(bx - ax);
+      if (along <= 0) continue;
+      var d = along + 2 * across;
+      if (d < bestD) { bestD = d; best = s; }
+    }
+    return best;
   }
 
   /** The remote while the wall is open; true when the key was used. */
   function key(k) {
-    if (k === TV.keys.back || k === 27 || k === 8) {
+    var K = TV.keys;
+    if (k === K.back || k === 27 || k === 8) {
       if (full) { full = false; place(); showFocus(); } else close();
       return true;
     }
     if (full) {
-      // Full screen: ← → the channel before or after, ↑ ↓ or OK back to the wall.
-      if (k === TV.keys.left || k === TV.keys.right) {
-        var d = k === TV.keys.left ? -1 : 1, n = channels.length;
-        for (var s = 1; s < n; s++) {
-          var j = (playing + d * s + n) % n;
-          if (channels[j].live && channels[j].embed) { focus = j; start(j); break; }
+      // Full screen: ← → the channel before or after (it comes to the big window), ↑ ↓ or OK back to the wall.
+      if (k === K.left || k === K.right) {
+        // By the list's order (wall_channels), not the slots', which change with every swap.
+        var d = k === K.left ? -1 : 1, n = channels.length;
+        for (var i = 1; i < n; i++) {
+          var c = (playing() + d * i + n * i) % n, ch = channels[c];
+          if (ch.live && ch.embed) { swap(slotOf(c)); full = true; place(); showFocus(); break; }
         }
-      } else if (k === TV.keys.up || k === TV.keys.down || k === TV.keys.ok) { full = false; place(); showFocus(); }
+      } else if (k === K.up || k === K.down || k === K.ok) { full = false; place(); showFocus(); }
       return true;
     }
-    var col = focus % 3, row = Math.floor(focus / 3), rows = Math.ceil(channels.length / 3);
-    if (k === TV.keys.left && col > 0) focus--;
-    else if (k === TV.keys.right && col < 2 && focus + 1 < channels.length) focus++;
-    else if (k === TV.keys.up && row > 0) focus -= 3;
-    else if (k === TV.keys.down && row < rows - 1) focus = Math.min(channels.length - 1, focus + 3);
-    else if (k === TV.keys.ok) ok();
-    else if (k !== TV.keys.left && k !== TV.keys.right && k !== TV.keys.up && k !== TV.keys.down) return false;
-    showFocus();
-    return true;
+    var dx = k === K.left ? -1 : k === K.right ? 1 : 0, dy = k === K.up ? -1 : k === K.down ? 1 : 0;
+    if (dx || dy) {
+      var to = neighbor(dx, dy);
+      if (to >= 0) { focus = to; showFocus(); }
+      return true;
+    }
+    if (k === K.ok) { ok(); return true; }
+    return false;
   }
 
   window.Wall = {
@@ -306,6 +453,6 @@
     close: close,
     key: key,
     /** For checking it on the TV (Web Inspector). */
-    debug: function () { return {focus: focus, playing: playing, full: full, channels: channels}; }
+    debug: function () { return {focus: focus, order: order, full: full, playingId: frame && frame.playingId, channels: channels}; }
   };
 })();

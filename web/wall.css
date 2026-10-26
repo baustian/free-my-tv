@@ -1,80 +1,111 @@
 /*
- * The news wall (wall.js): 3 × 3 channels; the chosen one plays live with sound in its tile (or full screen), the
- * others show their live's latest picture. No CSS variables, grid or backdrop-filter, as in home.css.
+ * The news wall (wall.js): a big window (2 × 2 cells) that plays the chosen channel live with sound, and the other
+ * channels' latest frames around it. No CSS variables, grid or backdrop-filter, as in home.css.
  */
 
 #wall {
   display: none;
   background: #07070A;
   z-index: 5;   /* over the screensaver (4), under the toast */
+  color: #F5F5F7;
 }
 #wall.open { display: block; }
 
+/* MARK: - Header: what plays, and the time */
+
+#wall .head { position: absolute; left: 32px; top: 44px; width: 1856px; height: 70px; }
+#wall .head .tag {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  padding: 6px 14px;
+  border-radius: 9px;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  background: #D4182B;
+}
+#wall .head .now {
+  position: absolute;
+  left: 150px;
+  top: 10px;
+  right: 180px;
+  font-size: 36px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#wall .head .clock { position: absolute; right: 0; top: 4px; font-size: 48px; font-weight: 300; font-feature-settings: 'tnum'; }
+
+/* MARK: - Tiles (wall.js sets where and how big) */
+
 #wall .wt {
   position: absolute;
-  width: 576px;
-  height: 324px;
-  border-radius: 18px;
+  border-radius: 16px;
   overflow: hidden;
   background: #16171C;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
   -webkit-transition: -webkit-transform 0.18s;
   transition: transform 0.18s;
 }
-#wall .wt img {
+#wall .wt .pic {
   position: absolute;
   left: 0;
   top: 0;
-  width: 576px;
-  height: 324px;
+  width: 100%;
+  height: 100%;
+  background-repeat: no-repeat;
   opacity: 0;
   -webkit-transition: opacity 0.6s;
   transition: opacity 0.6s;
 }
-#wall .wt img.on { opacity: 1; }
+#wall .wt .pic.on { opacity: 1; }
 #wall .wt .bar {
   position: absolute;
   left: 0;
+  right: 0;
   bottom: 0;
-  width: 536px;
-  padding: 26px 20px 12px;
-  color: #F5F5F7;
-  font-size: 24px;
+  padding: 24px 16px 10px;
+  font-size: 23px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  background: -webkit-linear-gradient(top, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.82));
-  background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.82));
+  background: -webkit-linear-gradient(top, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.85));
+  background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.85));
 }
-#wall .wt .bar .what { font-size: 17px; font-weight: 400; color: rgba(255, 255, 255, 0.7); margin-left: 10px; }
+#wall .wt .bar .what { font-size: 16px; font-weight: 400; color: rgba(255, 255, 255, 0.72); margin-left: 10px; }
+#wall .wt.big .bar { font-size: 30px; padding: 40px 24px 16px; }
+#wall .wt.big .bar .what { font-size: 21px; }
 #wall .wt .badge {
   position: absolute;
-  left: 16px;
-  top: 14px;
-  padding: 3px 10px;
+  left: 14px;
+  top: 12px;
+  padding: 3px 9px;
   border-radius: 7px;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.5px;
-  color: #FFF;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.6);
 }
 #wall .wt .badge.live { background: #D4182B; }
 #wall .wt .badge.sound { background: #F5F5F7; color: #111; }
-#wall .wt .badge.yt { background: rgba(0, 0, 0, 0.7); }
+#wall .wt .badge.yt { background: rgba(0, 0, 0, 0.75); }
 #wall .wt.focus {
   -webkit-transform: scale(1.04);
   transform: scale(1.04);
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.6), 0 0 0 4px #F5F5F7;
   z-index: 2;
 }
-#wall .wt.playing .bar { display: none; }
+#wall .wt.big.focus { -webkit-transform: none; transform: none; }
+
+/* MARK: - The video, over the big window or the whole screen */
 
 #wall iframe {
   position: absolute;
   border: 0;
-  border-radius: 18px;
+  border-radius: 16px;
   background: #000;
   z-index: 3;
   pointer-events: none;
@@ -84,9 +115,9 @@
 #wall .hint {
   position: absolute;
   left: 0;
-  bottom: 6px;
+  top: 980px;
   width: 1920px;
   text-align: center;
-  font-size: 17px;
+  font-size: 19px;
   color: rgba(255, 255, 255, 0.5);
 }
