@@ -12,7 +12,7 @@ GET /status lists what it follows. The TV falls back to the storyboard when this
 GET /live/<video id>/index.m3u8 is the live itself, for the big window. YouTube's HLS carries ad breaks only as
 markers (the channel's own picture goes on), but its audio is a separate playlist and it sends no CORS headers, so
 FFmpeg copies video and audio into one plain HLS stream here (no re-encoding). 404 until a few segments are ready (a
-few seconds); one live at a time, stopped LIVE_IDLE seconds after the TV stops asking. The TV plays the embed (with
+few seconds); each stopped LIVE_IDLE seconds after the TV stops asking for it. The TV plays the embed (with
 YouTube's ads) when this doesn't answer.
 
 Needs yt-dlp, FFmpeg and a JavaScript runtime for yt-dlp (Deno): on Windows,
@@ -38,6 +38,7 @@ URL_TTL = 3600        # the HLS address is good for hours; ask again after one
 MAX_VIDEOS = 16
 LIVE_IDLE = 20        # seconds without asks before a live stream stops
 LIVE_READY = 3        # segments in the playlist before it's served
+MAX_LIVES = 3         # lives copied at once (the one playing, and the ones before it until they go idle)
 VIDEO_ID = re.compile(r'^[\w-]{11}$')
 NO_WINDOW = 0x08000000 if os.name == 'nt' else 0   # CREATE_NO_WINDOW: no console flashing under pythonw
 
@@ -219,8 +220,12 @@ class Handler(BaseHTTPRequestHandler):
         with LOCK:
             l = LIVES.get(vid)
             if not l and name == 'index.m3u8':
-                for other in LIVES.values():   # one at a time: the TV plays one
-                    other.stopped = True
+                # The TV plays one, but its player may still ask for the one before for a moment: the oldest ask
+                # makes room, never the newest (they would stop each other in turns).
+                while len(LIVES) >= MAX_LIVES:
+                    oldest = min(LIVES.values(), key=lambda o: o.asked)
+                    oldest.stopped = True
+                    del LIVES[oldest.vid]
                 l = LIVES[vid] = Live(vid, OPTS)
                 l.start()
         if not l:

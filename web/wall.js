@@ -229,7 +229,6 @@
     frame.src = PLAYER;
     video = el('video', '', root);
     video.style.display = 'none';
-    video.addEventListener('playing', function () { video.started = true; place(); });
     video.addEventListener('error', function () { if (mode === 'direct' && video.getAttribute('src')) toEmbed(); });
     el('div', 'hint', root, 'OK: ver este canal · OK en el grande: pantalla completa · Atrás: volver');
   }
@@ -325,7 +324,8 @@
   function place() {
     var ch = channels[playing()], on = !!playingId && ch && ch.id === playingId;
     var r = full ? {x: 0, y: 0, w: 1920, h: 1080} : rect(0);
-    var players = [[frame, on && mode === 'embed'], [video, on && mode === 'direct' && video.started]];
+    // The video shows from when it has a source: Samsung's player doesn't start one that's hidden.
+    var players = [[frame, on && mode === 'embed'], [video, on && mode === 'direct' && !!video.getAttribute('src')]];
     for (var i = 0; i < players.length; i++) {
       var p = players[i][0];
       p.style.display = players[i][1] ? '' : 'none';
@@ -365,6 +365,7 @@
     place();
     var run = runs, url = SHARP + '/live/' + playingId + '/index.m3u8', tries = 0;
     var poll = function () {
+      if (run !== runs) return;   // another channel since: asking for this one would start it again
       var x = new XMLHttpRequest();
       x.open('GET', url + '?t=' + Date.now());
       x.timeout = 5000;
@@ -372,6 +373,7 @@
         if (run !== runs) return;
         if (x.status === 200) {
           video.src = url;
+          place();
           var p = video.play();
           if (p && p.then) p.then(null, function () { if (run === runs) toEmbed(); });
         } else if (x.status === 404 && ++tries < 30) setTimeout(poll, 1000);
@@ -384,7 +386,6 @@
 
   function stopDirect() {
     runs++;
-    video.started = false;
     video.lastTime = -1;
     if (video.getAttribute('src')) {
       video.pause();
