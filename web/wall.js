@@ -14,6 +14,8 @@
  * video plays in CONFIG.wallPlayer, a page on GitHub Pages (github.com/baustian/oraculo-player), driven with
  * postMessage. Each channel's live is looked up from its @handle every time (a channel's live gets a new id when it
  * restarts). A channel that doesn't allow embedding opens in YouTube.
+ * With CONFIG.wallFrames, the big window plays the live from there instead, without ads, in the TV's own player; the
+ * embed when it doesn't answer, doesn't start or stops moving.
  *
  * Channels: wall_channels in config.properties, "Name:@handle" separated by commas. ES5: the TV runs Chromium 69.
  */
@@ -30,7 +32,8 @@
 
   var channels = parseChannels(CONFIG.wallChannels || []);
   var order = [];   // order[slot] = index in channels; slot 0 is the big window
-  var root = null, frame = null, head = null, tiles = [];
+  var root = null, frame = null, video = null, head = null, tiles = [];
+  var playingId = '', mode = '', runs = 0;   // mode: 'direct' (wall_frames, no ads) or 'embed' (YouTube's player)
   var opened = false, focus = 0, full = false, timers = [];
   var hooks = {toast: function () {}, youtube: function () {}};
 
@@ -114,7 +117,7 @@
 
   /** After a new lookup of the playing channel: a new id (the live restarted) plays the new one. */
   function replay(ch) {
-    if (ch === channels[playing()] && ch.live && ch.embed && ch.id !== frame.playingId) start();
+    if (ch === channels[playing()] && ch.live && ch.embed && ch.id !== playingId) start();
   }
 
   // MARK: - The latest frame of each live
@@ -165,7 +168,7 @@
 
   /** A new frame: the sharp one when wall_frames answers, else the storyboard's. Not for the one playing. */
   function refresh(ch) {
-    if (!ch.live || !ch.id || (ch === channels[playing()] && frame && frame.playingId === ch.id)) return;
+    if (!ch.live || !ch.id || (ch === channels[playing()] && playingId === ch.id)) return;
     if (!SHARP) { frameOf(ch); return; }
     if (ch.sharpBusy) return;
     ch.sharpBusy = true;
@@ -221,10 +224,13 @@
     frame.setAttribute('allow', 'autoplay; encrypted-media');
     frame.setAttribute('tabindex', '-1');
     frame.style.display = 'none';
-    frame.playingId = '';
     frame.ready = false;
     frame.onload = function () { frame.ready = true; if (frame.pending) send(frame.pending); frame.pending = null; };
     frame.src = PLAYER;
+    video = el('video', '', root);
+    video.style.display = 'none';
+    video.addEventListener('playing', function () { video.started = true; place(); });
+    video.addEventListener('error', function () { if (mode === 'direct' && video.getAttribute('src')) toEmbed(); });
     el('div', 'hint', root, 'OK: ver este canal · OK en el grande: pantalla completa · Atrás: volver');
   }
 
@@ -317,32 +323,90 @@
 
   /** The video over the big window, or over the whole screen. */
   function place() {
-    var ch = channels[playing()], on = !!frame.playingId && ch && ch.id === frame.playingId;
-    frame.style.display = on ? '' : 'none';
-    setClass(frame, 'full', full);
+    var ch = channels[playing()], on = !!playingId && ch && ch.id === playingId;
     var r = full ? {x: 0, y: 0, w: 1920, h: 1080} : rect(0);
-    frame.style.left = r.x + 'px';
-    frame.style.top = r.y + 'px';
-    frame.style.width = r.w + 'px';
-    frame.style.height = r.h + 'px';
+    var players = [[frame, on && mode === 'embed'], [video, on && mode === 'direct' && video.started]];
+    for (var i = 0; i < players.length; i++) {
+      var p = players[i][0];
+      p.style.display = players[i][1] ? '' : 'none';
+      setClass(p, 'full', full);
+      p.style.left = r.x + 'px';
+      p.style.top = r.y + 'px';
+      p.style.width = r.w + 'px';
+      p.style.height = r.h + 'px';
+    }
   }
 
-  /** Plays the big window's channel, with sound. */
+  /** Plays the big window's channel, with sound: without ads from wall_frames when it answers, else the embed. */
   function start() {
     var ch = channels[playing()];
     if (!ch || !ch.live || !ch.embed) { stopVideo(); return; }
     store('order', order.map(function (c) { return channels[c].handle; }).join(','));
-    frame.playingId = ch.id;
-    send({wall: 'play', id: ch.id, sound: true});
-    place();
+    playingId = ch.id;
+    if (SHARP) toDirect(); else toEmbed();
     paint(playing());
   }
 
-  function stopVideo() {
-    if (!frame || !frame.playingId) return;
-    frame.playingId = '';
-    full = false;
+  function toEmbed() {
+    stopDirect();
+    mode = 'embed';
+    send({wall: 'play', id: playingId, sound: true});
+    place();
+  }
+
+  /**
+   * The live from wall_frames.py: YouTube's own stream, whose ad breaks are only markers. Its playlist answers 404 for
+   * the few seconds the computer needs to start it; the tile's latest frame shows meanwhile.
+   */
+  function toDirect() {
+    stopDirect();
     send({wall: 'stop'});
+    mode = 'direct';
+    place();
+    var run = runs, url = SHARP + '/live/' + playingId + '/index.m3u8', tries = 0;
+    var poll = function () {
+      var x = new XMLHttpRequest();
+      x.open('GET', url + '?t=' + Date.now());
+      x.timeout = 5000;
+      x.onload = x.onerror = x.ontimeout = function () {
+        if (run !== runs) return;
+        if (x.status === 200) {
+          video.src = url;
+          var p = video.play();
+          if (p && p.then) p.then(null, function () { if (run === runs) toEmbed(); });
+        } else if (x.status === 404 && ++tries < 30) setTimeout(poll, 1000);
+        else toEmbed();   // the computer is off, or the live didn't come
+      };
+      x.send();
+    };
+    poll();
+  }
+
+  function stopDirect() {
+    runs++;
+    video.started = false;
+    video.lastTime = -1;
+    if (video.getAttribute('src')) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    }
+  }
+
+  /** Every 15 s: a direct live that hasn't moved since the last look goes to the embed. */
+  function checkDirect() {
+    if (mode !== 'direct' || !video.getAttribute('src')) return;
+    if (video.currentTime > video.lastTime) video.lastTime = video.currentTime;
+    else toEmbed();
+  }
+
+  function stopVideo() {
+    if (!frame || !playingId) return;
+    playingId = '';
+    full = false;
+    stopDirect();
+    send({wall: 'stop'});
+    mode = '';
     place();
   }
 
@@ -379,7 +443,7 @@
     var m;
     try { m = JSON.parse(e.data); } catch (x) { return; }
     var ch = channels[playing()];
-    if (!m || m.wall !== 'state' || !ch || m.id !== ch.id) return;
+    if (!m || m.wall !== 'state' || mode !== 'embed' || !ch || m.id !== ch.id) return;
     // Ended (the channel restarted its live with a new id) or not found: look it up again.
     if (m.state === 0 || m.error === 2 || m.error === 100) lookup(ch, replay);
     else if (m.error === 101 || m.error === 150 || m.error === 153) {
@@ -419,6 +483,7 @@
     }
     timers.push(setInterval(lookupAll, LOOKUP_EVERY));
     timers.push(setInterval(framesAll, FRAME_EVERY));
+    timers.push(setInterval(checkDirect, 15000));
     timers.push(setInterval(paintHead, 15000));
   }
 
@@ -483,6 +548,6 @@
     close: close,
     key: key,
     /** For checking it on the TV (Web Inspector). */
-    debug: function () { return {focus: focus, order: order, full: full, playingId: frame && frame.playingId, channels: channels}; }
+    debug: function () { return {focus: focus, order: order, full: full, playingId: playingId, mode: mode, channels: channels}; }
   };
 })();

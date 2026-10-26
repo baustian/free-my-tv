@@ -104,14 +104,14 @@
 
 /* Square corners: Samsung TVs show video on a plane under the page, through a hole the page leaves for it, and a
    rounded (clipped) frame loses the hole: the video was black in the big window and fine full screen. */
-#wall iframe {
+#wall iframe, #wall video {
   position: absolute;
   border: 0;
   background: #000;
   z-index: 3;
   pointer-events: none;
 }
-#wall iframe.full { z-index: 10; }
+#wall iframe.full, #wall video.full { z-index: 10; }
 
 #wall .hint {
   position: absolute;
