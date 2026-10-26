@@ -102,15 +102,16 @@
 
 /* MARK: - The video, over the big window or the whole screen */
 
+/* Square corners: Samsung TVs show video on a plane under the page, through a hole the page leaves for it, and a
+   rounded (clipped) frame loses the hole: the video was black in the big window and fine full screen. */
 #wall iframe {
   position: absolute;
   border: 0;
-  border-radius: 16px;
   background: #000;
   z-index: 3;
   pointer-events: none;
 }
-#wall iframe.full { border-radius: 0; z-index: 10; }
+#wall iframe.full { z-index: 10; }
 
 #wall .hint {
   position: absolute;
