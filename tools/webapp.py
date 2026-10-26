@@ -16,7 +16,7 @@ import translate  # noqa: E402  (the catalogues and the keys the web app uses)
 GENERIC = {'tmdbKey': '', 'tmdbRegion': '', 'latitude': '', 'longitude': '', 'city': '', 'language': 'auto',
            'currency': '', 'temperature': 'auto', 'theme': 'auto', 'showCrypto': True, 'hideAnimation': False, 'hideApps': [],
            'shelfApps': [], 'calendarUrls': [], 'newsEdition': '', 'backgroundMinutes': 10,
-           'wallChannels': [], 'wallPlayer': ''}
+           'wallChannels': [], 'wallPlayer': '', 'wallFrames': ''}
 
 
 def config_from_args(args):
@@ -70,6 +70,8 @@ def read_config(path):
         # The news wall: up to 9 YouTube channels as Name:@handle, and the page that plays them (it needs a web address).
         'wallChannels': [s.strip() for s in values.get('wall_channels', '').split(',') if s.strip()],
         'wallPlayer': values.get('wall_player', ''),
+        # Sharp frames for its small tiles: tools/wall_frames.py's address (empty = YouTube's small ones).
+        'wallFrames': values.get('wall_frames', ''),
     }
 
 

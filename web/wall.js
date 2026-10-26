@@ -8,6 +8,7 @@
  * The frames come from the live's storyboard (the small pictures YouTube's player shows when seeking): a new sheet of
  * 3 × 3 frames about every 30 s, numbered; the newest is the highest number that exists, and its last frame is the
  * latest. Small (159 × 90), but real: the _live.jpg thumbnail is often the channel's cover, not the broadcast.
+ * Sharp ones come from CONFIG.wallFrames (tools/wall_frames.py, on the computer), every 15 s, while it answers.
  *
  * YouTube plays an embed only on a page with a web address (from the app's file:// it answers error 153), so the
  * video plays in CONFIG.wallPlayer, a page on GitHub Pages (github.com/baustian/oraculo-player), driven with
@@ -22,8 +23,10 @@
   // Cells of 16:9 under a header: the big window is 2 × 2 of them.
   var CW = 452, CH = 254, GAP = 16, X0 = 32, Y0 = 150;
   var SLOTS = [[0, 0, 2], [2, 0, 1], [3, 0, 1], [2, 1, 1], [3, 1, 1], [0, 2, 1], [1, 2, 1], [2, 2, 1], [3, 2, 1]];
-  var LOOKUP_EVERY = 10 * 60 * 1000, FRAME_EVERY = 30 * 1000;
+  var LOOKUP_EVERY = 10 * 60 * 1000, FRAME_EVERY = 15 * 1000, SHARP_FOR = 60 * 1000;
   var PLAYER = CONFIG.wallPlayer || 'https://baustian.github.io/oraculo-player/';
+  // tools/wall_frames.py (on the computer, or a server): sharp frames; the storyboard's when it doesn't answer.
+  var SHARP = (CONFIG.wallFrames || '').replace(/\/+$/, '');
 
   var channels = parseChannels(CONFIG.wallChannels || []);
   var order = [];   // order[slot] = index in channels; slot 0 is the big window
@@ -37,7 +40,7 @@
       var m = /^\s*(.*?)\s*:\s*(@[\w.\-]+)\s*$/.exec(list[i]) || /^\s*()(@[\w.\-]+)\s*$/.exec(list[i]);
       if (!m) continue;
       out.push({name: m[1] || m[2].slice(1), handle: m[2], id: '', live: false, embed: true, title: '', at: 0,
-                busy: false, sb: null, sheet: 0, probing: false});
+                busy: false, sb: null, sheet: 0, probing: false, sharp: '', sharpAt: 0, sharpBusy: false});
     }
     return out;
   }
@@ -97,10 +100,10 @@
         var parts = decode(sb[1]).split('#');
         ch.sb = {url: parts[0], cols: +parts[3] || 3, rows: +parts[4] || 3};
       } else ch.sb = null;
-      if (ch.id !== before) ch.sheet = 0;
+      if (ch.id !== before) { ch.sheet = 0; ch.sharp = ''; }
       if (done) done(ch);
       paint(channels.indexOf(ch));
-      frameOf(ch);
+      refresh(ch);
     };
     x.send();
   }
@@ -160,8 +163,30 @@
     });
   }
 
+  /** A new frame: the sharp one when wall_frames answers, else the storyboard's. Not for the one playing. */
+  function refresh(ch) {
+    if (!ch.live || !ch.id || (ch === channels[playing()] && frame && frame.playingId === ch.id)) return;
+    if (!SHARP) { frameOf(ch); return; }
+    if (ch.sharpBusy) return;
+    ch.sharpBusy = true;
+    var id = ch.id, url = SHARP + '/frame/' + id + '.jpg?t=' + Date.now(), img = new Image();
+    img.onload = function () {
+      ch.sharpBusy = false;
+      if (ch.id !== id) return;
+      ch.sharp = url;
+      ch.sharpAt = Date.now();
+      paint(channels.indexOf(ch));
+    };
+    img.onerror = function () {
+      // Off, or the first frame isn't ready yet (it is a few seconds after the first ask).
+      ch.sharpBusy = false;
+      frameOf(ch);
+    };
+    img.src = url;
+  }
+
   function framesAll() {
-    for (var i = 0; i < channels.length; i++) frameOf(channels[i]);
+    for (var i = 0; i < channels.length; i++) refresh(channels[i]);
   }
 
   // MARK: - Tiles
@@ -230,7 +255,11 @@
     if (big) paintHead();
     if (!ch.live) return;
     var url, size, pos;
-    if (ch.sb && ch.sheet) {
+    if (ch.sharp && Date.now() - ch.sharpAt < SHARP_FOR) {
+      url = ch.sharp;
+      size = 'cover';
+      pos = 'center';
+    } else if (ch.sb && ch.sheet) {
       // The sheet's last frame: the bottom right of cols × rows.
       url = ch.sb.url.replace('$M', ch.sheet);
       size = (ch.sb.cols * 100) + '% ' + (ch.sb.rows * 100) + '%';
@@ -325,6 +354,7 @@
     focus = 0;
     layout();
     start();
+    refresh(channels[order[s]]);   // the one that left the big window: a frame of now
   }
 
   /** OK: a small tile comes to the big window and plays; the big one goes full screen. */
