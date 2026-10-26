@@ -16,7 +16,7 @@ import translate  # noqa: E402  (the catalogues and the keys the web app uses)
 GENERIC = {'tmdbKey': '', 'tmdbRegion': '', 'latitude': '', 'longitude': '', 'city': '', 'language': 'auto',
            'currency': '', 'temperature': 'auto', 'theme': 'auto', 'showCrypto': True, 'hideAnimation': False, 'hideApps': [],
            'shelfApps': [], 'calendarUrls': [], 'newsEdition': '', 'backgroundMinutes': 10,
-           'wallChannels': [], 'wallPlayer': '', 'wallFrames': ''}
+           'walls': [], 'wallPlayer': '', 'wallFrames': ''}
 
 
 def config_from_args(args):
@@ -48,6 +48,18 @@ def read_config(path):
             sys.exit('config.properties: %s must be a number (got "%s")' % (key, v))
         return v
 
+    def walls():
+        """The live walls: wall_channels, wall_channels_2, … named by wall_names; the empty ones left out."""
+        names = [s.strip() for s in values.get('wall_names', '').split(',')]
+        out = []
+        for n in range(1, 10):
+            key = 'wall_channels' + ('_%d' % n if n > 1 else '')
+            channels = [s.strip() for s in values.get(key, '').split(',') if s.strip()]
+            if channels:
+                name = names[n - 1] if n <= len(names) and names[n - 1] else 'En vivo %d' % n
+                out.append({'name': name, 'channels': channels})
+        return out
+
     return {
         'tmdbKey': values.get('tmdb_key', ''),
         'tmdbRegion': values.get('tmdb_region', 'US') or 'US',
@@ -67,8 +79,9 @@ def read_config(path):
         'calendarUrls': [s.strip() for s in re.split(r'[\s,]+', values.get('calendar_urls', '')) if s.strip()],
         'newsEdition': values.get('news_edition', ''),
         'backgroundMinutes': int(number('background_minutes', '10')),
-        # The news wall: up to 9 YouTube channels as Name:@handle, and the page that plays them (it needs a web address).
-        'wallChannels': [s.strip() for s in values.get('wall_channels', '').split(',') if s.strip()],
+        # The live walls: up to 9 YouTube channels each as Name:@handle, and the page that plays them (it needs a web
+        # address).
+        'walls': walls(),
         'wallPlayer': values.get('wall_player', ''),
         # Sharp frames for its small tiles: tools/wall_frames.py's address (empty = YouTube's small ones).
         'wallFrames': values.get('wall_frames', ''),

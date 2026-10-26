@@ -35,7 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 IDLE = 90             # seconds without asks before a video is dropped
 URL_TTL = 3600        # the HLS address is good for hours; ask again after one
-MAX_VIDEOS = 16
+MAX_VIDEOS = 27       # three walls' worth: the ones left behind stay until they go idle
 LIVE_IDLE = 20        # seconds without asks before a live stream stops
 LIVE_READY = 3        # segments in the playlist before it's served
 MAX_LIVES = 3         # lives copied at once (the one playing, and the ones before it until they go idle)

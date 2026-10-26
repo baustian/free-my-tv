@@ -194,6 +194,8 @@ var TV = (function () {
   if (webos && window.PalmSystem && window.PalmSystem.identifier) self = window.PalmSystem.identifier.split(' ')[0];
   if (samsung) {
     try { self = window.tizen.application.getCurrentApplication().appInfo.id; } catch (e) {}
+    // CH + and CH − reach an app only when it asks for them (the news wall switches walls with them).
+    try { window.tizen.tvinputdevice.registerKeyBatch(['ChannelUp', 'ChannelDown']); } catch (e) {}
   }
 
   // MARK: - Samsung
@@ -452,6 +454,7 @@ var TV = (function () {
     },
 
     /** Key codes: the arrows, OK and the TV's Back (LG 461, Samsung 10009). */
-    keys: {left: 37, up: 38, right: 39, down: 40, ok: 13, back: samsung ? 10009 : 461}
+    keys: {left: 37, up: 38, right: 39, down: 40, ok: 13, back: samsung ? 10009 : 461,
+           chUp: samsung ? 427 : 33, chDown: samsung ? 428 : 34}
   };
 })();

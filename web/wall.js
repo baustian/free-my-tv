@@ -17,7 +17,9 @@
  * With CONFIG.wallFrames, the big window plays the live from there instead, without ads, in the TV's own player; the
  * embed when it doesn't answer, doesn't start or stops moving.
  *
- * Channels: wall_channels in config.properties, "Name:@handle" separated by commas. ES5: the TV runs Chromium 69.
+ * Walls: one per topic (news, radios, streaming…), each up to 9 channels: wall_names and wall_channels, wall_channels_2…
+ * in config.properties, "Name:@handle" separated by commas. Tabs at the top switch walls (↑ from the top row, then
+ * ← →), and so do CH + and CH −. ES5: the TV runs Chromium 69.
  */
 (function () {
   'use strict';
@@ -30,11 +32,16 @@
   // tools/wall_frames.py (on the computer, or a server): sharp frames; the storyboard's when it doesn't answer.
   var SHARP = (CONFIG.wallFrames || '').replace(/\/+$/, '');
 
-  var channels = parseChannels(CONFIG.wallChannels || []);
+  var walls = [];
+  for (var w = 0; w < (CONFIG.walls || []).length; w++) {
+    var list = parseChannels(CONFIG.walls[w].channels || []);
+    if (list.length) walls.push({name: CONFIG.walls[w].name, channels: list});
+  }
+  var current = 0, channels = walls.length ? walls[0].channels : [];
   var order = [];   // order[slot] = index in channels; slot 0 is the big window
-  var root = null, frame = null, video = null, head = null, tiles = [];
+  var root = null, frame = null, video = null, head = null, tabs = [], tiles = [];
   var playingId = '', mode = '', runs = 0;   // mode: 'direct' (wall_frames, no ads) or 'embed' (YouTube's player)
-  var opened = false, focus = 0, full = false, timers = [];
+  var opened = false, focus = 0, full = false, timers = [];   // focus: a slot, or -1 for the tabs
   var hooks = {toast: function () {}, youtube: function () {}};
 
   function parseChannels(list) {
@@ -206,6 +213,42 @@
     el('div', 'tag', head, 'EN VIVO');
     el('div', 'now', head);
     el('div', 'clock', head);
+    var bar = el('div', 'tabs', head);
+    tabs = [];
+    for (var w = 0; w < walls.length && walls.length > 1; w++) {
+      var tab = el('div', 'tab', bar, walls[w].name);
+      (function (n) {
+        tab.onclick = function () { switchWall(n); };
+      })(w);
+      tabs.push(tab);
+    }
+    frame = el('iframe', '', root);
+    frame.setAttribute('allow', 'autoplay; encrypted-media');
+    frame.setAttribute('tabindex', '-1');
+    frame.style.display = 'none';
+    frame.ready = false;
+    frame.onload = function () { frame.ready = true; if (frame.pending) send(frame.pending); frame.pending = null; };
+    frame.src = PLAYER;
+    video = el('video', '', root);
+    video.style.display = 'none';
+    video.addEventListener('error', function () { if (mode === 'direct' && video.getAttribute('src')) toEmbed(); });
+    el('div', 'hint', root, 'OK: ver este canal · OK en el grande: pantalla completa' +
+      (tabs.length ? ' · ↑ o CH: otro muro' : '') + ' · Atrás: volver');
+  }
+
+  /** The tabs: the current wall's lit, the focused one ringed; what plays starts after them (their width varies). */
+  function paintTabs() {
+    for (var w = 0; w < tabs.length; w++) {
+      setClass(tabs[w], 'on', w === current);
+      setClass(tabs[w], 'focus', w === current && focus === -1 && !full);
+    }
+    var bar = head.children[3];
+    if (tabs.length && bar.offsetWidth) head.children[1].style.left = (bar.offsetLeft + bar.offsetWidth + 32) + 'px';
+  }
+
+  /** The current wall's tiles, in place of the last one's. */
+  function buildTiles() {
+    while (tiles.length) root.removeChild(tiles.pop());
     for (var i = 0; i < channels.length; i++) {
       var t = el('div', 'wt', root);
       el('div', 'pic', t);
@@ -220,17 +263,6 @@
       })(i);
       tiles.push(t);
     }
-    frame = el('iframe', '', root);
-    frame.setAttribute('allow', 'autoplay; encrypted-media');
-    frame.setAttribute('tabindex', '-1');
-    frame.style.display = 'none';
-    frame.ready = false;
-    frame.onload = function () { frame.ready = true; if (frame.pending) send(frame.pending); frame.pending = null; };
-    frame.src = PLAYER;
-    video = el('video', '', root);
-    video.style.display = 'none';
-    video.addEventListener('error', function () { if (mode === 'direct' && video.getAttribute('src')) toEmbed(); });
-    el('div', 'hint', root, 'OK: ver este canal · OK en el grande: pantalla completa · Atrás: volver');
   }
 
   function layout() {
@@ -311,6 +343,7 @@
 
   function showFocus() {
     for (var s = 0; s < order.length; s++) setClass(tiles[order[s]], 'focus', s === focus && !full);
+    paintTabs();
   }
 
   // MARK: - The player
@@ -341,7 +374,7 @@
   function start() {
     var ch = channels[playing()];
     if (!ch || !ch.live || !ch.embed) { stopVideo(); return; }
-    store('order', order.map(function (c) { return channels[c].handle; }).join(','));
+    store(orderKey(), order.map(function (c) { return channels[c].handle; }).join(','));
     playingId = ch.id;
     if (SHARP) toDirect(); else toEmbed();
     paint(playing());
@@ -459,7 +492,7 @@
 
   /** The last order (the big window's channel first), as handles; channels added since go at the end. */
   function savedOrder() {
-    var saved = (store('order') || '').split(','), out = [], i;
+    var saved = (store(orderKey()) || '').split(','), out = [], i;
     for (i = 0; i < saved.length; i++) {
       for (var c = 0; c < channels.length; c++) if (channels[c].handle === saved[i] && out.indexOf(c) < 0) out.push(c);
     }
@@ -467,14 +500,29 @@
     return out;
   }
 
+  /** Each wall's order is kept on its own ('order' for the first, as before there were several). */
+  function orderKey() { return current ? 'order' + current : 'order'; }
+
   function open() {
-    if (!channels.length) { hooks.toast('No hay canales: wall_channels en config.properties.'); return; }
+    if (!walls.length) { hooks.toast('No hay canales: wall_channels en config.properties.'); return; }
     if (!root.firstChild) build();
     opened = true;
-    full = false;
     focus = 0;
-    order = savedOrder();
     setClass(root, 'open', true);
+    var saved = +store('wall');
+    show(saved > 0 && saved < walls.length ? saved : 0);
+  }
+
+  /** Wall n: its tiles, fresh lookups, and its big window's channel playing. */
+  function show(n) {
+    stopVideo();
+    while (timers.length) clearInterval(timers.pop());
+    current = n;
+    channels = walls[n].channels;
+    store('wall', String(n));
+    buildTiles();
+    full = false;
+    order = savedOrder();
     layout();
     // Fresh lookups every time: the ids from before may be a live that has ended.
     for (var c = 0; c < channels.length; c++) {
@@ -486,6 +534,12 @@
     timers.push(setInterval(framesAll, FRAME_EVERY));
     timers.push(setInterval(checkDirect, 15000));
     timers.push(setInterval(paintHead, 15000));
+  }
+
+  /** Another wall, from a tab or CH + / CH − (the tabs keep the focus if they had it). */
+  function switchWall(n) {
+    if (n < 0 || n >= walls.length || n === current) return;
+    show(n);
   }
 
   function close() {
@@ -516,6 +570,17 @@
       if (full) { full = false; place(); showFocus(); } else close();
       return true;
     }
+    if (k === K.chUp || k === K.chDown) {
+      // CH + / CH −: the next or previous wall, round.
+      if (walls.length > 1) show((current + (k === K.chUp ? 1 : walls.length - 1)) % walls.length);
+      return true;
+    }
+    if (focus === -1) {
+      // The tabs: ← → switch walls, ↓ or OK back to the tiles.
+      if (k === K.left || k === K.right) switchWall(current + (k === K.left ? -1 : 1));
+      else if (k === K.down || k === K.ok) { focus = 0; showFocus(); }
+      return true;
+    }
     if (full) {
       // Full screen: ← → the channel before or after (it comes to the big window), ↑ ↓ or OK back to the wall.
       if (k === K.left || k === K.right) {
@@ -531,7 +596,9 @@
     var dx = k === K.left ? -1 : k === K.right ? 1 : 0, dy = k === K.up ? -1 : k === K.down ? 1 : 0;
     if (dx || dy) {
       var to = neighbor(dx, dy);
-      if (to >= 0) { focus = to; showFocus(); }
+      if (to >= 0) focus = to;
+      else if (dy < 0 && tabs.length) focus = -1;   // ↑ from the top row: the tabs
+      showFocus();
       return true;
     }
     if (k === K.ok) { ok(); return true; }
